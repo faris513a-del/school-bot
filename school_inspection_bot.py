@@ -26,7 +26,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
 # تحميل المتغيرات البيئية
-load_dotenv()
+
 
 # إعداد السجلات
 logging.basicConfig(

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 بوت تيليجرام لإدارة تقارير زيارات المدارس
-School Inspection Telegram Bot
+School Inspection Telegram Bot - Fixed Version
 """
 
 import os
@@ -10,7 +10,6 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, Any
-from dotenv import load_dotenv
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
@@ -25,9 +24,6 @@ from telegram.ext import (
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 
-# تحميل المتغيرات البيئية
-
-
 # إعداد السجلات
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -35,11 +31,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# قراءة الإعدادات
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-GROUP_CHAT_ID = os.getenv('GROUP_CHAT_ID')
-ADMIN_IDS = [int(id.strip()) for id in os.getenv('ADMIN_IDS', '').split(',') if id.strip()]
-SUPERVISOR_IDS = [int(id.strip()) for id in os.getenv('SUPERVISOR_IDS', '').split(',') if id.strip()]
+# قراءة الإعدادات من Environment Variables مباشرة
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+GROUP_CHAT_ID = os.environ.get('GROUP_CHAT_ID')
+ADMIN_IDS = [int(id.strip()) for id in os.environ.get('ADMIN_IDS', '').split(',') if id.strip()]
+SUPERVISOR_IDS = [int(id.strip()) for id in os.environ.get('SUPERVISOR_IDS', '').split(',') if id.strip()]
 
 # أسماء المشرفين
 SUPERVISORS_NAMES = [
@@ -121,12 +117,11 @@ def get_reports_by_period(period: str) -> list:
         end_date = today
     elif period == 'week':
         # الأسبوع يبدأ الجمعة وينتهي الخميس
-        days_since_friday = (today.weekday() + 3) % 7  # الجمعة = 4 في weekday
+        days_since_friday = (today.weekday() + 3) % 7
         start_date = today - timedelta(days=days_since_friday)
         end_date = start_date + timedelta(days=6)
     elif period == 'month':
         start_date = today.replace(day=1)
-        # آخر يوم في الشهر
         if today.month == 12:
             end_date = today.replace(day=31)
         else:
@@ -151,56 +146,48 @@ def get_reports_by_period(period: str) -> list:
 def create_excel_report(period: str, reports: list) -> str:
     """إنشاء ملف Excel للتقارير"""
     wb = Workbook()
-    wb.remove(wb.active)  # حذف الشيت الافتراضي
+    wb.remove(wb.active)
     
-    # الألوان والتنسيق
     header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF", size=12)
     
     sections = [
-        ('الصيانة', 3),  # العمود 3 = maintenance_notes
-        ('التكييف', 4),  # العمود 4 = ac_notes
-        ('النظافة', 5)   # العمود 5 = cleaning_notes
+        ('الصيانة', 3),
+        ('التكييف', 4),
+        ('النظافة', 5)
     ]
     
     for section_name, notes_column in sections:
         ws = wb.create_sheet(title=section_name)
         
-        # العناوين
         headers = ['التاريخ', 'المشرف', 'المدرسة', 'الملاحظة']
         ws.append(headers)
         
-        # تنسيق العناوين
         for cell in ws[1]:
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        # إضافة البيانات
         for report in reports:
             visit_date = report[1]
             supervisor_name = report[0]
             school_name = report[2]
             note = report[notes_column]
             
-            # إذا كانت الملاحظة فارغة، نضع "لا يوجد"
             if not note or note.strip() == '':
                 note = 'لا يوجد'
             
             ws.append([visit_date, supervisor_name, school_name, note])
         
-        # ضبط عرض الأعمدة
         ws.column_dimensions['A'].width = 15
         ws.column_dimensions['B'].width = 15
         ws.column_dimensions['C'].width = 30
         ws.column_dimensions['D'].width = 50
         
-        # محاذاة النصوص
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
             for cell in row:
                 cell.alignment = Alignment(horizontal='right', vertical='top', wrap_text=True)
     
-    # إضافة شيت الملخص
     summary_sheet = wb.create_sheet(title='الملخص', index=0)
     summary_sheet.append(['نوع التقرير', 'الفترة'])
     summary_sheet.append(['إجمالي التقارير', len(reports)])
@@ -211,7 +198,6 @@ def create_excel_report(period: str, reports: list) -> str:
         count = sum(1 for r in reports if r[notes_column] and r[notes_column].strip() and r[notes_column].strip().lower() != 'لا يوجد')
         summary_sheet.append([section_name, count])
     
-    # تنسيق شيت الملخص
     for cell in summary_sheet[1]:
         cell.fill = header_fill
         cell.font = header_font
@@ -219,7 +205,6 @@ def create_excel_report(period: str, reports: list) -> str:
     summary_sheet.column_dimensions['A'].width = 20
     summary_sheet.column_dimensions['B'].width = 20
     
-    # حفظ الملف
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f'تقرير_{period}_{timestamp}.xlsx'
     wb.save(filename)
@@ -259,7 +244,6 @@ async def start_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ عذراً، هذا الأمر متاح للمشرفين الميدانيين فقط")
         return ConversationHandler.END
     
-    # إنشاء لوحة مفاتيح بأسماء المشرفين
     keyboard = []
     for i in range(0, len(SUPERVISORS_NAMES), 2):
         row = [KeyboardButton(SUPERVISORS_NAMES[i])]
@@ -297,7 +281,6 @@ async def get_supervisor_name(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     context.user_data['supervisor_name'] = supervisor_name
     
-    # اختيار تاريخ الزيارة
     keyboard = [
         [KeyboardButton("📅 اليوم"), KeyboardButton("📅 أمس")],
         [KeyboardButton("✍️ إدخال تاريخ")]
@@ -323,18 +306,17 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif date_input == "✍️ إدخال تاريخ":
         await update.message.reply_text(
             "أدخل التاريخ بالصيغة: YYYY-MM-DD\n"
-            "مثال: 2024-01-15",
+            "مثال: 2024-12-17",
             reply_markup=ReplyKeyboardMarkup([[]], resize_keyboard=True)
         )
         return VISIT_DATE
     else:
-        # محاولة تحليل التاريخ المدخل
         try:
             visit_date = datetime.strptime(date_input, '%Y-%m-%d').date()
         except ValueError:
             await update.message.reply_text(
                 "⚠️ صيغة تاريخ خاطئة. يرجى إدخال التاريخ بالصيغة: YYYY-MM-DD\n"
-                "مثال: 2024-01-15"
+                "مثال: 2024-12-17"
             )
             return VISIT_DATE
     
@@ -389,7 +371,6 @@ async def get_cleaning_notes(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """الحصول على ملاحظات النظافة"""
     context.user_data['cleaning_notes'] = update.message.text
     
-    # عرض مراجعة التقرير
     data = context.user_data
     review_text = (
         "📋 مراجعة التقرير:\n\n"
@@ -425,14 +406,11 @@ async def confirm_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return ConversationHandler.END
     
-    # حفظ التقرير في قاعدة البيانات
     user_id = update.effective_user.id
     report_id = save_report(user_id, context.user_data)
     
-    # إرسال رسالة تأكيد للمشرف
     await query.edit_message_text("✅ تم اعتماد التقرير بنجاح!")
     
-    # نشر التقرير في القروب
     data = context.user_data
     group_message = (
         f"📊 تقرير زيارة — {data['visit_date']}\n"
@@ -490,11 +468,9 @@ async def summary_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def generate_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, period: str):
     """توليد ملف Excel وإرساله"""
-    # إذا كانت رسالة عادية (من الأمر مباشرة)
     if update.message:
         chat_id = update.message.chat_id
         message = update.message
-    # إذا كانت من زر inline
     else:
         query = update.callback_query
         await query.answer()
@@ -504,17 +480,14 @@ async def generate_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, p
     await message.reply_text("⏳ جاري إنشاء التقرير...")
     
     try:
-        # استخراج التقارير
         reports = get_reports_by_period(period)
         
         if not reports:
             await message.reply_text(f"⚠️ لا توجد تقارير في هذه الفترة ({period})")
             return
         
-        # إنشاء ملف Excel
         filename = create_excel_report(period, reports)
         
-        # إرسال الملف
         period_names = {
             'today': 'اليوم',
             'week': 'الأسبوع',
@@ -533,7 +506,6 @@ async def generate_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, p
         
         await message.reply_text(f"✅ تم إرسال تقرير {period_names[period]} إلى القروب")
         
-        # حذف الملف المؤقت
         os.remove(filename)
         
     except Exception as e:
@@ -579,22 +551,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     """البرنامج الرئيسي"""
-    # التحقق من الإعدادات
     if not BOT_TOKEN:
-        logger.error("خطأ: BOT_TOKEN غير موجود في ملف .env")
+        logger.error("خطأ: BOT_TOKEN غير موجود")
+        print("❌ خطأ: BOT_TOKEN غير موجود في Environment Variables")
         return
     
     if not GROUP_CHAT_ID:
-        logger.error("خطأ: GROUP_CHAT_ID غير موجود في ملف .env")
+        logger.error("خطأ: GROUP_CHAT_ID غير موجود")
+        print("❌ خطأ: GROUP_CHAT_ID غير موجود في Environment Variables")
         return
     
-    # إنشاء قاعدة البيانات
     init_database()
     
-    # إنشاء التطبيق
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # معالج المحادثة لإرسال التقارير
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('report', start_report)],
         states={
@@ -609,7 +579,6 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
-    # إضافة المعالجات
     application.add_handler(CommandHandler('start', start))
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler('summary', summary_menu))
@@ -618,9 +587,10 @@ def main():
     application.add_handler(CommandHandler('summary_month', summary_month))
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # تشغيل البوت
     logger.info("🤖 البوت يعمل الآن...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    print("🤖 البوت يعمل الآن...")
+    
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == '__main__':
